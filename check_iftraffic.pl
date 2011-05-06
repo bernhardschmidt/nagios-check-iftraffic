@@ -76,14 +76,17 @@ my $response;
 # Path to  tmp files
 my $TRAFFIC_FILE = "/tmp/traffic";
 
+# changes sos 20090717 UNKNOWN must bes 3
 my %STATUS_CODE =
-  ( 'UNKNOWN' => '-1', 'OK' => '0', 'WARNING' => '1', 'CRITICAL' => '2' );
+  ( 'UNKNOWN' => '3', 'OK' => '0', 'WARNING' => '1', 'CRITICAL' => '2' );
 
 #default values;
 my ( $in_bytes, $out_bytes ) = 0;
 my $warn_usage = 85;
 my $crit_usage = 98;
 my $COMMUNITY  = "public";
+my $o_noreg    =  undef;  # Do not use Regexp for name
+
 
 #added 20050614 by mw
 my $max_value;
@@ -96,6 +99,8 @@ my $status = GetOptions(
 	"w|warning=s"   => \$warn_usage,
 	"c|critical=s"  => \$crit_usage,
 	"b|bandwidth=i" => \$iface_speed,
+        'r'             => \$o_noreg,           
+        'noregexp'      => \$o_noreg,
 	"p|port=i"      => \$port,
 	"u|units=s"     => \$units,
 	"i|interface=s" => \$iface_descr,
@@ -119,7 +124,7 @@ $iface_speed = bits2bytes( $iface_speed, $units ) / 1024;
 if ( !$max_value ) {
 
 	#if no -M Parameter was set, set it to 32Bit Overflow
-	$max_bytes = 419304;    # the value is (2^32/1024)
+	$max_bytes = 4194304 ;    # the value is (2^32/1024)
 }
 else {
 	$max_bytes = unit2bytes( $max_value, $units );
@@ -165,6 +170,10 @@ if ( !defined( $response = $session->get_request(@snmpoids) ) ) {
 $in_bytes  = $response->{ $snmpIfInOctets . "." . $iface_number } / 1024;
 $out_bytes = $response->{ $snmpIfOutOctets . "." . $iface_number } / 1024;
 
+
+
+
+
 $session->close;
 
 my $row;
@@ -182,9 +191,17 @@ if (
 
 		#cosmetic change 20050416 by mw
 		#Couldn't sustain;-)
-		chomp();
+##		chomp();
 		( $last_check_time, $last_in_bytes, $last_out_bytes ) =
 		  split( ":", $row );
+
+### by sos 17.07.2009 check for last_bytes
+if ( ! $last_in_bytes  ) { $last_in_bytes=$in_bytes;  }
+if ( ! $last_out_bytes ) { $last_out_bytes=$out_bytes; }
+
+if ($last_in_bytes !~ m/\d/) { $last_in_bytes=$in_bytes; }
+if ($last_out_bytes !~ m/\d/) { $last_out_bytes=$out_bytes; }
+
 	}
 	close(FILE);
 }
@@ -193,6 +210,7 @@ my $update_time = time;
 
 open( FILE, ">" . $TRAFFIC_FILE . "_if" . $iface_number . "_" . $host_address )
   or die "Can't open $TRAFFIC_FILE for writing: $!";
+
 printf FILE ( "%s:%.0ld:%.0ld\n", $update_time, $in_bytes, $out_bytes );
 close(FILE);
 
@@ -209,8 +227,14 @@ my $in_traffic = sprintf( "%.2lf",
 my $out_traffic = sprintf( "%.2lf",
 	( $out_bytes - $last_out_bytes ) / ( time - $last_check_time ) );
 
-my $in_traffic_absolut  = sprintf( "%.0d", $last_in_bytes );
-my $out_traffic_absolut = sprintf( "%.0d", $last_out_bytes );
+# sos 20090717 changed  due to rrdtool needs bytes
+#my $in_traffic_absolut  = sprintf( "%.0d", $last_in_bytes * 1024 );
+#my $out_traffic_absolut = sprintf( "%.0d", $last_out_bytes * 1024 );
+ my $in_traffic_absolut  = $in_bytes * 1024 ;
+ my $out_traffic_absolut = $out_bytes * 1024;
+
+
+
 
 my $in_usage  = sprintf( "%.1f", ( 1.0 * $in_traffic * 100 ) / $iface_speed );
 my $out_usage = sprintf( "%.1f", ( 1.0 * $out_traffic * 100 ) / $iface_speed );
@@ -282,7 +306,23 @@ sub fetch_ifdescr {
 	}
 
 	foreach $key ( keys %{$response} ) {
-		if ( $response->{$key} =~ /^$ifdescr$/ ) {
+
+		# added 20070816 by oer: remove trailing 0 Byte for Windows :-(
+		my $resp=$response->{$key};
+		$resp =~ s/\x00//;
+
+
+                my $test = defined($o_noreg)
+                      ? $resp =~ /$ifdescr/
+                      : $resp eq $ifdescr;
+
+                if ($test) {
+
+		###if ( $resp =~ /^$ifdescr$/ ) {
+		###if ( $resp =~ /$ifdescr/ ) {
+                ### print "$resp  \n";
+		###if ( $response->{$key} =~ /^$ifdescr$/ ) {
+
 			$key =~ /.*\.(\d+)$/;
 			$snmpkey = $1;
 
@@ -328,11 +368,12 @@ sub unit2bytes {
 #This function detects if an overflow occurs. If so, it returns
 #a computed value for $bytes.
 #If there is no counter overflow it simply returns the origin value of $bytes.
+#IF there is a Counter reboot wrap, just use previous output.
 sub counter_overflow {
 	my ( $bytes, $last_bytes, $max_bytes ) = @_;
 
 	$bytes += $max_bytes if ( $bytes < $last_bytes );
-	$bytes = 0 if ( $bytes < $last_bytes );
+	$bytes = $last_bytes  if ( $bytes < $last_bytes );
 	return $bytes;
 }
 
@@ -349,6 +390,8 @@ sub print_usage {
         Check interface on the indicated host.
     -C --community STRING 
         SNMP Community.
+    -r, --noregexp
+        Do not use regexp to match NAME in description OID
     -i --interface STRING
         Interface Name
     -b --bandwidth INTEGER
