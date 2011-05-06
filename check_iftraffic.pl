@@ -646,17 +646,10 @@ $output =
   . $suffix . " ("
   . $out_usage . "%) ";
 $output .= "Total RX: " . $rx . $label . ", Total TX: " . $tx . $label;
-$state = "OK";
+$state = Nagios::Plugin::OK;
 
-if ( ( $in_usage > $warn_usage ) or ( $out_usage > $warn_usage ) ) {
-    $state = "WARNING";
-}
-
-if ( ( $in_usage > $crit_usage ) or ( $out_usage > $crit_usage ) ) {
-    $state = "CRITICAL";
-}
-
-$output = "$output" if ( $state ne "OK" );
+$state = $np->max_state($state, $np->check_threshold( $in_usage ));
+$state = $np->max_state($state, $np->check_threshold( $out_usage ));
 
 $np->add_perfdata(
 	label	=> "inUsage",
