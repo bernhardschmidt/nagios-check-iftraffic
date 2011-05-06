@@ -149,6 +149,7 @@ my $max_value;
 my $max_bits;
 
 my $np;
+my $threshold;
 
 #Need to check this
 my $use_reg = undef;    # Use Regexp for name
@@ -429,8 +430,13 @@ $np->add_arg(
     label	=> 'IPADDRESS',
 );
 
-
 $np->getopts();
+
+$threshold = Nagios::Plugin::Threshold->set_thresholds(
+	warning		=> $np->opts->warning,
+	critical	=> $np->opts->critical
+);
+
 
 # Legacy variable assignments
 $host_ip = $np->opts->address;
@@ -652,15 +658,35 @@ if ( ( $in_usage > $crit_usage ) or ( $out_usage > $crit_usage ) ) {
 
 $output = "$state - $output" if ( $state ne "OK" );
 
-$output .=
-"|inUsage=$in_usage%;$warn_usage;$crit_usage outUsage=$out_usage%;$warn_usage;$crit_usage"
-  . " inBandwidth="
-  . $in_traffic
-  . $suffix
-  . " outBandwidth="
-  . $out_traffic
-  . $suffix
-  . " inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut";
+$np->add_perfdata(
+	label	=> "inUsage",
+	value	=> $in_usage,
+	uom	=> '%',
+	threshold => $threshold );
+
+$np->add_perfdata(
+	label	=> "outUsage",
+	value	=> $out_usage,
+	uom	=> '%',
+	threshold => $threshold );
+
+$np->add_perfdata(
+	label	=> "inBandwidth",
+	value	=> $in_traffic,
+	uom	=> $suffix );
+
+$np->add_perfdata(
+	label	=> "outBandwidth",
+	value	=> $out_traffic,
+	uom	=> $suffix );
+
+$np->add_perfdata(
+	label	=> "inAbsolut",
+	value	=> $in_traffic_absolut );
+
+$np->add_perfdata(
+	label	=> "outAbsolut",
+	value	=> $out_traffic_absolut );
 
 $np->nagios_stop( $output, $state );
 
