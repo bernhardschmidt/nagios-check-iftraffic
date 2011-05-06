@@ -339,12 +339,12 @@ $np = Nagios::Plugin->new(
 	plugin => "check_iftraffic.pl",
 	timeout => 10,
 	extra => "\n\n" .
-		"Example 1: check_iftraffic3.pl -H host1 -C sneaky\n" .
-		"Example 2: check_iftraffic3.pl -H host1 -C sneaky -i \"Intel Pro\" -r -B\n" .
-		"Example 3: check_iftraffic3.pl -H host1 -C sneaky -i 5\n" . 
-		"Example 4: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 100 -u m\n" .
-		"Example 5: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 20 -O 5 -u m\n" .
-		"Example 6: check_iftraffic3.pl -H host1 -C sneaky -A 192.168.1.1 -B -b 100 -u m\n",
+		"Example 1: check_iftraffic.pl -H host1 -C sneaky\n" .
+		"Example 2: check_iftraffic.pl -H host1 -C sneaky -i \"Intel Pro\" -r -B\n" .
+		"Example 3: check_iftraffic.pl -H host1 -C sneaky -i 5\n" . 
+		"Example 4: check_iftraffic.pl -H host1 -C sneaky -i 5 -B -b 100 -u m\n" .
+		"Example 5: check_iftraffic.pl -H host1 -C sneaky -i 5 -B -b 20 -O 5 -u m\n" .
+		"Example 6: check_iftraffic.pl -H host1 -C sneaky -A 192.168.1.1 -B -b 100 -u m\n",
 );
 
 $np->add_arg(
@@ -373,7 +373,11 @@ $np->add_arg(
 
 $np->add_arg(
 	spec	=> 'interface|i=s',
-	help	=> 'Interface Name or Index'
+	help	=> [
+		'Interface Name',
+		'Interface Index',
+	],
+	label	=> ['STRING', 'INTEGER'],
 );
 
 $np->add_arg(
