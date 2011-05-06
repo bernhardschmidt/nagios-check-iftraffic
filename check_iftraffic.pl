@@ -55,6 +55,11 @@
 #	All errors go to stop().
 #	Final note: The new version works but it can be made a lot better. All I have done was to make it workable with fast speed interfaces.
 #
+#       4.1 - Several changes, most of them to fit better an ISP environment:
+#       - bits per second are the default now. Use -B for bytes.
+#       - RX, TX and absolute values show bytes/octets only.
+#       - We now use Perl's given-where "switch" in some places. Look for the correct "use" for your version of perl.
+#
 #
 # based on check_traffic from Adrian Wieczorek, <ads (at) irc.pila.pl>
 #
@@ -75,6 +80,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307
+
+#For perl 5.12. We use it.
+use 5.012;
+#For perl 5.10
+#use feature qw(switch say);
+#For older versions of perl
+#use Switch;
 
 use strict;
 
@@ -103,8 +115,10 @@ my @snmpoids;
 
 # SNMP OIDs for Traffic
 my $snmpIfOperStatus 	= '1.3.6.1.2.1.2.2.1.8';
+#Older 32-bit counter:
 #my $snmpIfInOctets  	= '1.3.6.1.2.1.2.2.1.10';
 my $snmpIfInOctets  	= '1.3.6.1.2.1.31.1.1.1.6';
+#Older 32-bit counter:
 #my $snmpIfOutOctets 	= '1.3.6.1.2.1.2.2.1.16';
 my $snmpIfOutOctets 	= '1.3.6.1.2.1.31.1.1.1.10';
 my $snmpIfDescr     	= '1.3.6.1.2.1.2.2.1.2';
@@ -126,19 +140,17 @@ my ( $in_bits, $out_bits ) = 0;
 my $warn_usage = 85;
 my $crit_usage = 98;
 my $COMMUNITY  = "public";
-my $use_reg    =  undef;  # Use Regexp for name
 my $output = "";
-my $bits = undef; 
-my $suffix = "bs";
-my $label = "mbits";
-my $in_prefix = "b";
-my $out_prefix = "b";
+my $bytes = undef; 
+my $suffix = "bps";
+my $label = "Bytes";
 
 my $max_value;
 my $max_bits;
 
-#cosmetic changes 20050614 by mw
-#Couldn't sustain "HERE";-), either.
+#Need to check this
+my $use_reg    =  undef;  # Use Regexp for name
+
 sub print_usage {
 	print <<EOU;
     Usage: check_iftraffic3.pl -H host [ -C community_string ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ]
@@ -154,37 +166,34 @@ sub print_usage {
 
     -H, --host STRING or IPADDRESS
         Check interface on the indicated host.
-    -B, --bits
-	Display results in bits per second b/s (default: Bytes/s)
+    -B, --bytes
+        Display results in Bytes per second B/s (default: bits/s)
     -C, --community STRING 
         SNMP Community (version 1 doesnt work!).
-    -r, --regexp
-        Use regexp to match NAME in description OID
     -i, --interface STRING
         Interface Name
     -b, --bandwidth INTEGER
     -I, --inBandwidth INTEGER
         Interface maximum speed in kilo/mega/giga/bits per second.  Applied to 
-	both IN and OUT if no second (-O) max speed is provided.
+        both IN and OUT if no second (-O) max speed is provided.
     -O, --outBandwidth INTEGER
         Interface maximum speed in kilo/mega/giga/bits per second.  Applied to
-	OUT traffic.  Uses the same units value given for -b. 
+        OUT traffic.  Uses the same units value given for -b.
+    -r, --regexp
+        Use regexp to match NAME in description OID
     -u, --units STRING
         g=gigabits/s,m=megabits/s,k=kilobits/s,b=bits/s.  Required if -b, -I, or 
-	-O are used.
+    -O are used.
     -w, --warning INTEGER
         % of bandwidth usage necessary to result in warning status (default: 85%)
     -c, --critical INTEGER
         % of bandwidth usage necessary to result in critical status (default: 98%)
     -M, --max INTEGER
-	Max Counter Value of net devices in kilo/mega/giga/bytes.
+        Max Counter Value of net devices in kilo/mega/giga/bytes.
     -A, --address STRING (IP Address)
-	IP Address to use when determining the interface index to use.  Can be 
-	used when the index changes frequently or as in the case of Windows 
-	servers the index is different depending on the NIC installed.
-    -L, --list FLAG (on/off)
-	Tell plugin to list available interfaces. This is not supported inside 
-	of Nagios, but may be useful from the command line.
+        IP Address to use when determining the interface index to use.  Can be 
+        used when the index changes frequently or as in the case of Windows 
+        servers the index is different depending on the NIC installed.
 EOU
 
 }
@@ -198,47 +207,28 @@ sub stop {
 };
 
 sub bytes2bits {
- return unit2bytes(@_) * 8;
+ return unit2bytes(@_)*8;
 };
 
-#added 20050416 by mw
 #Converts an input value to value in bytes
 sub unit2bytes {
  my ( $value, $unit ) = @_;
- if ( $unit eq "g" ) {
- return $value * 1024 * 1024 * 1024;
- }
- elsif ( $unit eq "m" ) {
-  return $value * 1024 * 1024;
- }
- elsif ( $unit eq "k" ) {
-  return $value * 1024;
- }
- elsif ( $unit eq "b" ) {
-  return $value * 1;
- }
- else {
-  stop("You have to supply a supported unit\n","UNKNOWN");
- }
+ given ($unit) {
+  when ('G') { return $value*1073741824; }
+  when ('M') { return $value*1048576; }
+  when ('K') { return $value*1024; }
+  default { return $value }
+ };
 };
 
 sub unit2bits {
  my ( $value, $unit ) = @_;
- if ( $unit eq "g" ) {
- return $value * 1000 * 1000 * 1000;
- }
- elsif ( $unit eq "m" ) {
-  return $value * 1000 * 1000;
- }
- elsif ( $unit eq "k" ) {
-  return $value * 1000;
- }
- elsif ( $unit eq "b" ) {
-  return $value * 1;
- }
- else {
-  stop("You have to supply a supported unit\n","UNKNOWN");
- }
+ given ($unit) {
+  when ('g') { return $value*1000000000; }
+  when ('m') { return $value*1000000; }
+  when ('k') { return $value*1000; }
+  default { return $value }
+ };
 };
 
 # Added 20100405 by gj
@@ -314,7 +304,7 @@ sub fetch_ifdescr {
   my $resp=$response->{$key};
   $resp =~ s/\x00//;
 
-  my $test = defined($use_reg) ? $resp =~ /$ifdescr/ : $resp eq $ifdescr;
+  my $test = defined($use_reg) ? $resp =~ /$ifdescr/ : $resp eq $ifdescr; 
 
   if ($test) {
    $key =~ /.*\.(\d+)$/;
@@ -328,24 +318,86 @@ sub fetch_ifdescr {
  return $snmpkey;
 };
 
+sub format_volume {
+ my $prefix_x;
+ my ($x)=@_;
+
+ if ( $x>1000000000000000000 ) {
+  $x=$x/1000000000000000000;
+  $prefix_x="E";
+ };
+ if ( $x>1000000000000000 ) {
+  $x=$x/1000000000000000;
+  $prefix_x="P";
+ };
+ if ( $x>1000000000000 ) {
+  $x=$x/1000000000000;
+  $prefix_x="T";
+ };
+ if ( $x>1000000000 ) {
+  $x=$x/1000000000;
+  $prefix_x="G";
+ };
+ if ( $x>1000000 ) {
+  $x=$x/1000000;
+  $prefix_x="M";
+ };
+ if ( $x>1000 ) {
+  $x=$x/1000;
+  $prefix_x="K";
+ };
+ $x=sprintf("%.2f",$x);
+ return $x.$prefix_x;
+};
+
+sub format_volume_bytes {
+ my $prefix_x;
+ my ($x)=@_;
+
+ if ( $x>1152921504606846976 ) {
+  $x=$x/1152921504606846976;
+  $prefix_x="E";
+ };
+ if ( $x>1125899906842624 ) {
+  $x=$x/1125899906842624;
+  $prefix_x="P";
+ };
+ if ( $x>1099511627776 ) {
+  $x=$x/1099511627776;
+  $prefix_x="T";
+ };
+ if ( $x>1073741824 ) {
+  $x=$x/1073741824;
+  $prefix_x="G";
+ };
+ if ( $x>1048576 ) {
+  $x=$x/1048576;
+  $prefix_x="M";
+ };
+ if ( $x>1024 ) {
+  $x=$x/1024;
+  $prefix_x="K";
+ };
+ $x=sprintf("%.2f",$x);
+ return $x.$prefix_x;
+};
 
 
 my $status = GetOptions(
- "h|help"        => \$opt_h,
- "H|hostname=s"  => \$host_address,
- "b|bandwidth|I|inBandwidth=i" => \$iface_speed,
- "u|units=s"     => \$units,
- "O|outBandwidth=i" => \$iface_speedOut,
- "B|bits"        => \$bits,
- "C|community=s" => \$COMMUNITY,
- "w|warning=s"   => \$warn_usage,
- "c|critical=s"  => \$crit_usage,
- "r|noregexp"    => \$use_reg,
- "p|port=i"      => \$port,
- "i|interface=s" => \$iface_descr,
  "A|address=s"   => \$host_ip,
- "L|list"        => \$index_list,
- "M|max=i"       => \$max_value
+ "B|Bytes"       => \$bytes,
+ "b|bandwidth|I|inBandwidth=i" => \$iface_speed,
+ "C|community=s" => \$COMMUNITY,
+ "c|critical=s"  => \$crit_usage,
+ "H|hostname=s"  => \$host_address,
+ "h|help"        => \$opt_h,
+ "i|interface=s" => \$iface_descr,
+ "M|max=i"       => \$max_value,
+ "O|outBandwidth=i" => \$iface_speedOut,
+ "p|port=i"      => \$port,
+ "r|noregexp"    => \$use_reg,
+ "u|units=s"     => \$units,
+ "w|warning=s"   => \$warn_usage
 );
 
 # Check for missing options
@@ -368,7 +420,7 @@ if (($iface_speedOut) and (!$units)) {
 if (!$units) {
  $units="b";
 };
-if (($iface_speed) and (!$bits)) {
+if (($iface_speed) and ($bytes)) {
  $iface_speed = bytes2bits( $iface_speed, $units );
  if ( $iface_speedOut ) { $iface_speedOut = bytes2bits( $iface_speedOut, $units ); };
 } elsif ($iface_speed) {
@@ -381,7 +433,7 @@ if (($iface_speed) and (!$bits)) {
 if ( !$max_value ) {
   $max_bits = 18446744073709551616;
 } else {
- if ($bits) {
+ if (!$bytes) {
   $max_bits = unit2bits( $max_value, $units );
  }
  else {
@@ -455,8 +507,8 @@ $in_bits  = $response->{ $snmpIfInOctets . "." . $iface_number }*8;
 $out_bits = $response->{ $snmpIfOutOctets . "." . $iface_number }*8;
 
 #We retain the absolute values in bytes for RRD. It doesn't matter that the counter may overflow.
-my $in_traffic_absolut  = $response->{ $snmpIfInOctets . "." . $iface_number };
-my $out_traffic_absolut = $response->{ $snmpIfOutOctets . "." . $iface_number };
+my $in_traffic_absolut=$response->{ $snmpIfInOctets . "." . $iface_number };
+my $out_traffic_absolut=$response->{ $snmpIfOutOctets . "." . $iface_number };
 
 $session->close;
 
@@ -504,56 +556,30 @@ if ( $out_bits < $last_out_bits ) {
 my $in_usage  = ($in_traffic*100)/$iface_speed;
 my $out_usage = ($out_traffic*100)/$iface_speedOut;
 
-if ( $in_traffic > 1000000000 ) {
- $in_traffic = $in_traffic/1000000000;
- $in_prefix = "G";
-}
-if ( $out_traffic > 1000000000 ) {
- $out_traffic = $out_traffic/1000000000;
- $out_prefix = "G";
-}
-if ( $in_traffic > 1000000 ) {
- $in_traffic = $in_traffic/1000000;
- $in_prefix = "M";
-}
-if ( $out_traffic > 1000000 ) {
- $out_traffic = $out_traffic/1000000;
- $out_prefix = "M";
+if ($bytes) {
+ # Convert output from bits to bytes
+ $in_traffic = $in_traffic/8;
+ $out_traffic = $out_traffic/8;
+ $suffix = "Bs";
 }
 
-if ( $in_traffic > 1000 ) {
- $in_traffic = $in_traffic/1000;
- $in_prefix = "K";
-}
-if ( $out_traffic > 1000 ) {
- $out_traffic = $out_traffic/1000;
- $out_prefix = "K";
-}
+my $in=format_volume($in_traffic);
+my $out=format_volume($out_traffic);
 
-# Convert from kilobits to megabits
-$in_bits  = sprintf( "%.2f", $in_bits/1000000 );
-$out_bits = sprintf( "%.2f", $out_bits/1000000 );
+my $rx=format_volume_bytes($in_traffic_absolut);
+my $tx=format_volume_bytes($out_traffic_absolut);
 
 #Convert percentages to a more visual format
 $in_usage  = sprintf("%.2f", $in_usage);
 $out_usage = sprintf("%.2f", $out_usage);
-$in_traffic = sprintf("%.2f", $in_traffic);
-$out_traffic = sprintf("%.2f",$out_traffic);
 
+#Convert performance to a more visual format
+$in_traffic  = sprintf("%.2f", $in_traffic);
+$out_traffic = sprintf("%.2f", $out_traffic);
 
-if (!$bits) {
- # Convert output from bits to bytes
- $in_bits = $in_bits/8;
- $out_bits = $out_bits/8;
- $in_traffic = $in_traffic/8;
- $out_traffic = $out_traffic/8;
- $label = "Mbytes";
- $suffix = "Bs";
-}
-
-$output = "Average IN: ".$in_traffic.$in_prefix.$suffix." (".$in_usage."%), "
-        ."Average OUT: ".$out_traffic.$out_prefix.$suffix." (".$out_usage."%) ";
-$output .= "Total RX: $in_bits $label, Total TX: $out_bits $label";
+$output = "Average IN: ".$in.$suffix." (".$in_usage."%), "
+        ."Average OUT: ".$out.$suffix." (".$out_usage."%) ";
+$output .= "Total RX: ".$rx.$label.", Total TX: ".$tx.$label;
 $state = "OK";
 
 if (($in_usage>$warn_usage) or ($out_usage>$warn_usage)) {
@@ -568,8 +594,8 @@ $output = "$state - $output" if ( $state ne "OK" );
 
 $output .=
 "|inUsage=$in_usage%;$warn_usage;$crit_usage outUsage=$out_usage%;$warn_usage;$crit_usage"
-  . " inBandwidth=" . $in_traffic . $in_prefix . $suffix . " outBandwidth=" . $out_traffic . $out_prefix . $suffix 
-  . " inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut";
+  ." inBandwidth=".$in_traffic.$suffix." outBandwidth=".$out_traffic.$suffix 
+  ." inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut";
 
 stop($output, $state);
 
