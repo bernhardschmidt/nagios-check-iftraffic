@@ -24,6 +24,29 @@
 # minor cosmetic changes by mw
 #	Sorry but I couldn't sustain to clean up some things.
 #
+# gj = Greg Frater gregATfraterfactory.com
+# Remarks (gj):
+# minor (gj):
+# 
+#	* fixed the performance data, formating was not to spec
+# 	* Added a check of the interfaces status (up/down).
+#	  If down the check returns a critical status.
+# 	* Allow either textual or the numeric index value.
+#	* If the interface speed is not specified on the command line
+#	  it gets it automatically from IfSpeed
+#	* Added option for second ifSpeed to allow for asymetrcal links
+#	  such as a DSL line or cable modem where the download and upload
+#	  speeds are different
+#	* Added -B option to display results in bits/sec instead of Bytes/sec
+#	* Added the current usage in Bytes/s (or bit/s) to the perfdata output
+#	* Added ability for plugin to determine interface to query by matching IP 
+#	  address of host with entry in ipAdEntIfIndex (.1.3.6.1.2.1.4.20.1.2) 
+#	* Added -L flag to list entries found in the ipAdEntIfIndex table
+#	Otherwise, it works as before.
+#
+#
+#
+#
 # based on check_traffic from Adrian Wieczorek, <ads (at) irc.pila.pl>
 #
 # Send us bug reports, questions and comments about this plugin.
@@ -52,10 +75,13 @@ use Getopt::Long;
 
 use Data::Dumper;
 
+my $host_ip;
 my $host_address;
 my $iface_number;
 my $iface_descr;
 my $iface_speed;
+my $iface_speedOut;
+my $index_list;
 my $opt_h;
 my $units;
 
@@ -67,9 +93,12 @@ my $snmp_version = 1;
 my @snmpoids;
 
 # SNMP OIDs for Traffic
-my $snmpIfInOctets  = '1.3.6.1.2.1.2.2.1.10';
-my $snmpIfOutOctets = '1.3.6.1.2.1.2.2.1.16';
-my $snmpIfDescr     = '1.3.6.1.2.1.2.2.1.2';
+my $snmpIfOperStatus 	= '1.3.6.1.2.1.2.2.1.8';
+my $snmpIfInOctets  	= '1.3.6.1.2.1.2.2.1.10';
+my $snmpIfOutOctets 	= '1.3.6.1.2.1.2.2.1.16';
+my $snmpIfDescr     	= '1.3.6.1.2.1.2.2.1.2';
+my $snmpIfSpeed     	= '1.3.6.1.2.1.2.2.1.5';
+my $snmpIPAdEntIfIndex 	= '1.3.6.1.2.1.4.20.1.2';
 
 my $response;
 
@@ -81,30 +110,43 @@ my %STATUS_CODE =
   ( 'UNKNOWN' => '3', 'OK' => '0', 'WARNING' => '1', 'CRITICAL' => '2' );
 
 #default values;
+my $state = "UNKNOWN";
+my $if_status = '4';
 my ( $in_bytes, $out_bytes ) = 0;
 my $warn_usage = 85;
 my $crit_usage = 98;
 my $COMMUNITY  = "public";
-my $o_noreg    =  undef;  # Do not use Regexp for name
-
+my $use_reg    =  undef;  # Use Regexp for name
+my $output = "";
+my $bits = undef; 
+my $suffix = "Bs";
+my $label = "MBytes";
 
 #added 20050614 by mw
 my $max_value;
 my $max_bytes;
 
 #cosmetic changes 20050614 by mw, see old versions for detail
+# Added options for bits and second max ifspeed 20100202 by gj
+# Added options for specificy IP addr to match 20100405 by gj
 my $status = GetOptions(
 	"h|help"        => \$opt_h,
+	'B'		=> \$bits,
+	'bits'		=> \$bits,
 	"C|community=s" => \$COMMUNITY,
 	"w|warning=s"   => \$warn_usage,
 	"c|critical=s"  => \$crit_usage,
-	"b|bandwidth=i" => \$iface_speed,
-        'r'             => \$o_noreg,           
-        'noregexp'      => \$o_noreg,
+	"b|bandwidth|I|inBandwidth=i" => \$iface_speed,
+	"O|outBandwidth=i" => \$iface_speedOut,
+        'r'             => \$use_reg,           
+        'noregexp'      => \$use_reg,
 	"p|port=i"      => \$port,
 	"u|units=s"     => \$units,
 	"i|interface=s" => \$iface_descr,
+	"A|address=s"   => \$host_ip,
 	"H|hostname=s"  => \$host_address,
+	'L'	  	=> \$index_list,
+	'list'	  	=> \$index_list,
 
 	#added 20050614 by mw
 	"M|max=i" => \$max_value
@@ -115,19 +157,47 @@ if ( $status == 0 ) {
 	exit $STATUS_CODE{'OK'};
 }
 
-if ( ( !$host_address ) or ( !$iface_descr ) or ( !$iface_speed ) ) {
-	print_usage();
+# Changed 20091214 gj
+# Check for missing options
+#if ( ( !$host_address ) or ( !$iface_descr ) ) {
+if ( !$host_address )  {
+	print  "\nMissing host address!\n\n";
+	stop(print_usage(),"OK");
+} elsif ( ( $iface_speed ) and ( !$units ) ){
+	print "\nMissing units!\n\n";
+	stop(print_usage(),"OK");
+} elsif ( ( $units ) and ( ( !$iface_speed ) and  ( !$iface_speedOut ) ) ) {
+	print "\nMissing interface maximum speed!\n\n";
+	stop(print_usage(),"OK");
+} elsif ( ( $iface_speedOut ) and ( !$units ) ) {
+	print "\nMissing units for Out maximum speed!\n\n";
+	stop(print_usage(),"OK");
 }
 
-#change 20050414 by mw
-$iface_speed = bits2bytes( $iface_speed, $units ) / 1024;
-if ( !$max_value ) {
 
-	#if no -M Parameter was set, set it to 32Bit Overflow
-	$max_bytes = 4194304 ;    # the value is (2^32/1024)
+if ($bits) {
+	$suffix = "bs"
 }
-else {
-	$max_bytes = unit2bytes( $max_value, $units );
+
+if ( !$iface_speed ) {
+	# Do nothing
+}else{
+
+	#change 20050414 by mw
+	# Added iface_speedOut 20100202 by gj
+	# Convert interface speed to kiloBytes
+	$iface_speed = bits2bytes( $iface_speed, $units ) / 1024;
+	if ( $iface_speedOut ) {
+		$iface_speedOut = bits2bytes( $iface_speedOut, $units ) / 1024;
+	}
+	if ( !$max_value ) {
+	
+		# If no -M Parameter was set, set it to 32Bit Overflow
+		$max_bytes = 4194304 ;    # the value is (2^32/1024)
+	}
+	else {
+		$max_bytes = unit2bytes( $max_value, $units );
+	}
 }
 
 if ( $snmp_version =~ /[12]/ ) {
@@ -139,23 +209,41 @@ if ( $snmp_version =~ /[12]/ ) {
 	);
 
 	if ( !defined($session) ) {
-		print("UNKNOWN: $error");
-		exit $STATUS_CODE{'UNKNOWN'};
+		stop("UNKNOWN: $error","UNKNOWN");
 	}
 }
 elsif ( $snmp_version =~ /3/ ) {
-	my $state = 'UNKNOWN';
-	print("$state: No support for SNMP v3 yet\n");
-	exit $STATUS_CODE{$state};
+	$state = 'UNKNOWN';
+	stop("$state: No support for SNMP v3 yet\n",$state);
 }
 else {
-	my $state = 'UNKNOWN';
-	print("$state: No support for SNMP v$snmp_version yet\n");
-	exit $STATUS_CODE{$state};
+	$state = 'UNKNOWN';
+	stop("$state: No support for SNMP v$snmp_version yet\n",$state);
 }
 
-$iface_number = fetch_ifdescr( $session, $iface_descr );
+# Neither Interface Index nor Host IP address were specified 
+if ( !$iface_descr ) {
+	if ( !$host_ip ){
+		# try to resolve host name and find index from ip addr
+		$iface_descr = fetch_Ip2IfIndex( $session, $host_address );
+	} else {
+		# Use ip addr to find index
+		$iface_descr = fetch_Ip2IfIndex( $session, $host_ip );
+	}	
+}
 
+#push( @snmpoids, $snmpIPAdEntIfIndex . "." . $host_address );
+
+# Added 20091209 gj
+# Detect if a string description was given or a numberic interface index number 
+if ( $iface_descr =~ /[^0123456789]+/ ) {
+	$iface_number = fetch_ifdescr( $session, $iface_descr );
+}else{
+	$iface_number = $iface_descr;
+}
+
+push( @snmpoids, $snmpIfSpeed . "." . $iface_number );
+push( @snmpoids, $snmpIfOperStatus . "." . $iface_number );
 push( @snmpoids, $snmpIfInOctets . "." . $iface_number );
 push( @snmpoids, $snmpIfOutOctets . "." . $iface_number );
 
@@ -163,16 +251,27 @@ if ( !defined( $response = $session->get_request(@snmpoids) ) ) {
 	my $answer = $session->error;
 	$session->close;
 
-	print("WARNING: SNMP error: $answer\n");
-	exit $STATUS_CODE{'WARNING'};
+	stop("WARNING: SNMP error: $answer\n", "WARNING");
 }
 
-$in_bytes  = $response->{ $snmpIfInOctets . "." . $iface_number } / 1024;
-$out_bytes = $response->{ $snmpIfOutOctets . "." . $iface_number } / 1024;
+# Added 20091209 gj
+# Get interface speed from device if not provided on command line
+# Convert to kiloBytes
+if ( !$iface_speed ) { 
+	$iface_speed = $response->{ $snmpIfSpeed . "." . $iface_number };
+	$units = "b";
+	$iface_speed = bits2bytes( $iface_speed, $units ) / 1024;
+}
 
+# Added 20100201 gj
+# Check if Out max speed was provided, use same if speed for both if not
+if (!$iface_speedOut) {
+	$iface_speedOut = $iface_speed;
+}
 
-
-
+$if_status = $response->{ $snmpIfOperStatus . "." . $iface_number };
+$in_bytes  = $response->{ $snmpIfInOctets . "." . $iface_number } / 1024; # in kiloBytes
+$out_bytes = $response->{ $snmpIfOutOctets . "." . $iface_number } / 1024; # in kiloBytes
 
 $session->close;
 
@@ -195,13 +294,12 @@ if (
 		( $last_check_time, $last_in_bytes, $last_out_bytes ) =
 		  split( ":", $row );
 
-### by sos 17.07.2009 check for last_bytes
-if ( ! $last_in_bytes  ) { $last_in_bytes=$in_bytes;  }
-if ( ! $last_out_bytes ) { $last_out_bytes=$out_bytes; }
+		### by sos 17.07.2009 check for last_bytes
+		if ( ! $last_in_bytes  ) { $last_in_bytes=$in_bytes;  }
+		if ( ! $last_out_bytes ) { $last_out_bytes=$out_bytes; }
 
-if ($last_in_bytes !~ m/\d/) { $last_in_bytes=$in_bytes; }
-if ($last_out_bytes !~ m/\d/) { $last_out_bytes=$out_bytes; }
-
+		if ($last_in_bytes !~ m/\d/) { $last_in_bytes=$in_bytes; }
+		if ($last_out_bytes !~ m/\d/) { $last_out_bytes=$out_bytes; }
 	}
 	close(FILE);
 }
@@ -222,70 +320,150 @@ my $db_file;
 $in_bytes  = counter_overflow( $in_bytes,  $last_in_bytes,  $max_bytes );
 $out_bytes = counter_overflow( $out_bytes, $last_out_bytes, $max_bytes );
 
+# Calculate traffic since last check (RX\TX) in kiloBytes
 my $in_traffic = sprintf( "%.2lf",
 	( $in_bytes - $last_in_bytes ) / ( time - $last_check_time ) );
 my $out_traffic = sprintf( "%.2lf",
 	( $out_bytes - $last_out_bytes ) / ( time - $last_check_time ) );
 
 # sos 20090717 changed  due to rrdtool needs bytes
-#my $in_traffic_absolut  = sprintf( "%.0d", $last_in_bytes * 1024 );
-#my $out_traffic_absolut = sprintf( "%.0d", $last_out_bytes * 1024 );
- my $in_traffic_absolut  = $in_bytes * 1024 ;
- my $out_traffic_absolut = $out_bytes * 1024;
+my $in_traffic_absolut  = $in_bytes * 1024 ;
+my $out_traffic_absolut = $out_bytes * 1024;
+
+# Calculate usage percentages
+my $in_usage  = sprintf( "%.2f", ( 1.0 * $in_traffic * 100 ) / $iface_speed );
+my $out_usage = sprintf( "%.2f", ( 1.0 * $out_traffic * 100 ) / $iface_speedOut );
 
 
+if ($bits) {
+	# Convert output from Bytes to bits
+	$in_bytes = $in_bytes * 8;
+	$out_bytes = $out_bytes * 8;
+	$in_traffic = $in_traffic * 8;
+	$out_traffic = $out_traffic * 8;	
+	$label = "Mbits";
+}
 
-
-my $in_usage  = sprintf( "%.1f", ( 1.0 * $in_traffic * 100 ) / $iface_speed );
-my $out_usage = sprintf( "%.1f", ( 1.0 * $out_traffic * 100 ) / $iface_speed );
-
-my $in_prefix  = "k";
-my $out_prefix = "k";
+my $in_prefix  = "K";
+my $out_prefix = "K";
 
 if ( $in_traffic > 1024 ) {
 	$in_traffic = sprintf( "%.2f", $in_traffic / 1024 );
 	$in_prefix = "M";
 }
-
 if ( $out_traffic > 1024 ) {
 	$out_traffic = sprintf( "%.2f", $out_traffic / 1024 );
 	$out_prefix = "M";
 }
+if ( $in_traffic > 1024 * 1024 ) {
+	$in_traffic = sprintf( "%.2f", $in_traffic / 1024 * 1024 );
+	$in_prefix = "G";
+}
+if ( $out_traffic > 1024 * 1024 ) {
+	$out_traffic = sprintf( "%.2f",$out_traffic / 1024 * 1024 );
+	$out_prefix = "G";
+}
 
+# Convert from kiloBytes to megaBytes
 $in_bytes  = sprintf( "%.2f", $in_bytes / 1024 );
 $out_bytes = sprintf( "%.2f", $out_bytes / 1024 );
 
-my $exit_status = "OK";
+$state = "OK";
 
-my $output = "Total RX Bytes: $in_bytes MB, Total TX Bytes: $out_bytes MB<br>";
-$output .=
-    "Average Traffic: $in_traffic "
-  . $in_prefix . "B/s ("
-  . $in_usage
-  . "%) in, $out_traffic "
-  . $out_prefix . "B/s ("
-  . $out_usage
-  . "%) out";
+# Added 20091209 by gj
+if ( $if_status != 1 ) {
+	$output = "Interface $iface_descr is down!";
+	
+}else{
+	$output =
+	"Average IN: "
+	  . $in_traffic . $in_prefix . $suffix . " (" . $in_usage . "%), " 
+	  . "Average OUT: " . $out_traffic . $out_prefix . $suffix . " (" . $out_usage . "%)<br>";
+	$output .= "Total RX: $in_bytes $label, Total TX: $out_bytes $label";
+}
 
-if ( ( $in_usage > $crit_usage ) or ( $out_usage > $crit_usage ) ) {
-	$exit_status = "CRITICAL";
+# Changed 20091209 gj
+if ( ( $in_usage > $crit_usage ) or ( $out_usage > $crit_usage ) or ( $if_status != 1 ) ) {
+	$state = "CRITICAL";
 }
 
 if (   ( $in_usage > $warn_usage )
-	or ( $out_usage > $warn_usage ) && $exit_status eq "OK" )
+	or ( $out_usage > $warn_usage ) && $state eq "OK" )
 {
-	$exit_status = "WARNING";
+	$state = "WARNING";
 }
 
-$output .= "<br>$exit_status bandwidth utilization.\n"
-  if ( $exit_status ne "OK" );
+# Changed 20091209 gj
+$output = "$state - $output"
+  if ( $state ne "OK" );
 
+# Changed 20091214 gj - commas should have been semi colons
 $output .=
-"| inUsage=$in_usage,$warn_usage,$crit_usage outUsage=$out_usage,$warn_usage,$crit_usage "
-  . "inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut\n";
+"|inUsage=$in_usage%;$warn_usage;$crit_usage outUsage=$out_usage%;$warn_usage;$crit_usage"
+  . " inBandwidth=" . $in_traffic . $in_prefix . $suffix . " outBandwidth=" . $out_traffic . $out_prefix . $suffix 
+  . " inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut";
 
-print $output;
-exit( $STATUS_CODE{$exit_status} );
+stop($output, $state);
+
+
+sub fetch_Ip2IfIndex {
+	my $state;
+	my $response;
+
+	my $snmpkey;
+	my $answer;
+	my $key;
+
+	my ( $session, $host ) = @_;
+
+
+	# Determine if we have a host name or IP addr
+	if ( $host =~ /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/ ){
+		#print "\nI found an IP address\n\n";
+	} else {
+		$host = get_ip ( $host );
+		#print "\nWe have a host name $host\n\n";
+	}
+
+	# Quit if results not found
+	if ( !defined( $response = $session->get_table($snmpIPAdEntIfIndex) ) ) {
+		$answer = $session->error;
+		$session->close;
+		$state = 'CRITICAL';
+		$session->close;
+		exit $STATUS_CODE{$state};
+	}
+
+	
+	my %resp = %{$response};
+#	foreach $key ( keys %{$response} ) {
+
+		if ( $index_list ){
+			print ("\nInterfaces found:\n");
+			print ("  IP Addr\tIndex\n");
+			print ("------------------------\n");
+		}		
+	# Check each returned value
+	foreach $key ( keys %resp ) {
+
+		if ( $index_list ){
+			my $index_addr = substr $key, 21;
+			print ($index_addr,"\t ",$resp{$key},"\n");
+		}
+
+		# Check for ip address mathcin in returned index results
+		if ( $key =~ /$host$/ ) {
+			$snmpkey = $resp{$key};
+		}
+	}
+	unless ( defined $snmpkey ) {
+		$session->close;
+		$state = 'CRITICAL';
+		printf "$state: Could not match $host \n";
+		exit $STATUS_CODE{$state};
+	}
+	return $snmpkey;
+}
 
 sub fetch_ifdescr {
 	my $state;
@@ -312,7 +490,7 @@ sub fetch_ifdescr {
 		$resp =~ s/\x00//;
 
 
-                my $test = defined($o_noreg)
+                my $test = defined($use_reg)
                       ? $resp =~ /$ifdescr/
                       : $resp eq $ifdescr;
 
@@ -358,8 +536,11 @@ sub unit2bytes {
 	elsif ( $unit eq "k" ) {
 		return $value * 1024;
 	}
+	elsif ( $unit eq "b" ) {
+		return $value * 1;
+	}
 	else {
-		print "You have to supplie a supported unit\n";
+		print "You have to supply a supported unit\n";
 		exit $STATUS_CODE{'UNKNOWN'};
 	}
 }
@@ -377,36 +558,86 @@ sub counter_overflow {
 	return $bytes;
 }
 
+# Added 20100202 by gj
+# Print results and exit script
+sub stop {
+	my $result = shift;
+	my $exit_code = shift;
+	print $result . "\n";
+	exit ( $STATUS_CODE{$exit_code} );
+}
+
+# Added 20100405 by gj
+# Lookup hosts ip address
+sub get_ip {
+	use Net::DNS;
+
+	my ( $host_name ) = @_;
+
+	my $res = Net::DNS::Resolver->new;
+	my $query = $res->search($host_name);
+
+	if ($query) {
+		foreach my $rr ($query->answer) {
+			next unless $rr->type eq "A";
+			#print $rr->address, "\n";
+			return $rr->address;
+		}
+	} else {
+		
+		stop("Error: IP address not resolved\n","UNKNOWN");
+	}
+}
+
 #cosmetic changes 20050614 by mw
-#Couldn't sustaine "HERE";-), either.
+#Couldn't sustain "HERE";-), either.
 sub print_usage {
 	print <<EOU;
-    Usage: check_iftraffic.pl -H host -i if_descr -b if_max_speed [ -w warn ] [ -c crit ]
+    Usage: check_iftraffic3.pl -H host [ -C community_string ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ]
 
+    Example 1: check_iftraffic3.pl -H host1 -C sneaky
+    Example 2: check_iftraffic3.pl -H host1 -C sneaky -i "Intel Pro" -r -B  
+    Example 3: check_iftraffic3.pl -H host1 -C sneaky -i 5
+    Example 4: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 100 -u m 
+    Example 5: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 20 -O 5 -u m 
+    Example 6: check_iftraffic3.pl -H host1 -C sneaky -A 192.168.1.1 -B -b 100 -u m 
 
     Options:
 
-    -H --host STRING or IPADDRESS
+    -H, --host STRING or IPADDRESS
         Check interface on the indicated host.
-    -C --community STRING 
+    -B, --bits
+	Display results in bits per second b/s (default: Bytes/s)
+    -C, --community STRING 
         SNMP Community.
-    -r, --noregexp
-        Do not use regexp to match NAME in description OID
-    -i --interface STRING
+    -r, --regexp
+        Use regexp to match NAME in description OID
+    -i, --interface STRING
         Interface Name
-    -b --bandwidth INTEGER
-        Interface maximum speed in kilo/mega/giga/bits per second.
-    -u --units STRING
-        gigabits/s,m=megabits/s,k=kilobits/s,b=bits/s.
-    -w --warning INTEGER
+    -b, --bandwidth INTEGER
+    -I, --inBandwidth INTEGER
+        Interface maximum speed in kilo/mega/giga/bits per second.  Applied to 
+	both IN and OUT if no second (-O) max speed is provided.
+    -O, --outBandwidth INTEGER
+        Interface maximum speed in kilo/mega/giga/bits per second.  Applied to
+	OUT traffic.  Uses the same units value given for -b. 
+    -u, --units STRING
+        g=gigabits/s,m=megabits/s,k=kilobits/s,b=bits/s.  Required if -b, -I, or 
+	-O are used.
+    -w, --warning INTEGER
         % of bandwidth usage necessary to result in warning status (default: 85%)
-    -c --critical INTEGER
+    -c, --critical INTEGER
         % of bandwidth usage necessary to result in critical status (default: 98%)
-    -M --max INTEGER
+    -M, --max INTEGER
 	Max Counter Value of net devices in kilo/mega/giga/bytes.
-
+    -A, --address STRING (IP Address)
+	IP Address to use when determining the interface index to use.  Can be 
+	used when the index changes frequently or as in the case of Windows 
+	servers the index is different depending on the NIC installed.
+    -L, --list FLAG (on/off)
+	Tell plugin to list available interfaces. This is not supported inside 
+	of Nagios, but may be useful from the command line.
 EOU
 
-	exit( $STATUS_CODE{"UNKNOWN"} );
 }
 
