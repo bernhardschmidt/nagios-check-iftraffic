@@ -400,7 +400,8 @@ $np->add_arg(
 $np->add_arg(
 	spec	=> 'units|u=s',
 	help	=> "g=gigabits/s,m=megabits/s,k=kilobits/s,b=bits/s.  Required if -b, -I, or\n" .
-		"   -O are used.",
+		"   -O are used. (default: %s)",
+	default	=> "b",
 );
 
 $np->add_arg(
@@ -447,18 +448,6 @@ $units = $np->opts->units;
 $warn_usage = $np->opts->warning;
 
 # Check for missing options
-if ( ($iface_speed) and ( !$units ) ) {
-    $np->nagios_die( "Missing units! ");
-}
-if ( ($units) and ( ( !$iface_speed ) and ( !$iface_speedOut ) ) ) {
-    $np->nagios_die( "Missing interface maximum speed!" );
-}
-if ( ($iface_speedOut) and ( !$units ) ) {
-    $np->nagios_die( "Missing units for Out maximum speed!" );
-}
-if ( !$units ) {
-    $units = "b";
-}
 if ( ($iface_speed) and ($bytes) ) {
     $iface_speed = bytes2bits( $iface_speed, $units );
     if ($iface_speedOut) {
