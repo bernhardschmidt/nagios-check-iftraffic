@@ -93,10 +93,9 @@ use feature qw(switch say);
 use strict;
 
 use Net::SNMP;
-use Getopt::Long;
-&Getopt::Long::config('bundling');
 
 use Data::Dumper;
+use Nagios::Plugin;
 
 my $host_ip;
 my $host_address;
@@ -110,7 +109,6 @@ my $units;
 
 my $session;
 my $error;
-my $port         = 161;
 my $snmp_version = 2;
 
 my @snmpoids;
@@ -141,9 +139,10 @@ my %STATUS_CODE =
 my $state     = "UNKNOWN";
 my $if_status = '4';
 my ( $in_bits, $out_bits ) = 0;
-my $warn_usage = 85;
-my $crit_usage = 98;
-my $COMMUNITY  = "public";
+my $warn_usage;
+my $crit_usage;
+my $COMMUNITY;
+my $port;
 my $output     = "";
 my $bytes      = undef;
 my $suffix     = "bps";
@@ -154,53 +153,6 @@ my $max_bits;
 
 #Need to check this
 my $use_reg = undef;    # Use Regexp for name
-
-sub print_usage {
-    print <<EOU;
-    Usage: check_iftraffic3.pl -H host [ -C community_string ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ]
-
-    Example 1: check_iftraffic3.pl -H host1 -C sneaky
-    Example 2: check_iftraffic3.pl -H host1 -C sneaky -i "Intel Pro" -r -B  
-    Example 3: check_iftraffic3.pl -H host1 -C sneaky -i 5
-    Example 4: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 100 -u m 
-    Example 5: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 20 -O 5 -u m 
-    Example 6: check_iftraffic3.pl -H host1 -C sneaky -A 192.168.1.1 -B -b 100 -u m 
-
-    Options:
-
-    -H, --host STRING or IPADDRESS
-        Check interface on the indicated host.
-    -B, --bytes
-        Display results in Bytes per second B/s (default: bits/s)
-    -C, --community STRING 
-        SNMP Community (version 1 doesnt work!).
-    -i, --interface STRING
-        Interface Name
-    -b, --bandwidth INTEGER
-    -I, --inBandwidth INTEGER
-        Interface maximum speed in kilo/mega/giga/bits per second.  Applied to 
-        both IN and OUT if no second (-O) max speed is provided.
-    -O, --outBandwidth INTEGER
-        Interface maximum speed in kilo/mega/giga/bits per second.  Applied to
-        OUT traffic.  Uses the same units value given for -b.
-    -r, --regexp
-        Use regexp to match NAME in description OID
-    -u, --units STRING
-        g=gigabits/s,m=megabits/s,k=kilobits/s,b=bits/s.  Required if -b, -I, or 
-    -O are used.
-    -w, --warning INTEGER
-        % of bandwidth usage necessary to result in warning status (default: 85%)
-    -c, --critical INTEGER
-        % of bandwidth usage necessary to result in critical status (default: 98%)
-    -M, --max INTEGER
-        Max Counter Value of net devices in kilo/mega/giga/bytes.
-    -A, --address STRING (IP Address)
-        IP Address to use when determining the interface index to use.  Can be 
-        used when the index changes frequently or as in the case of Windows 
-        servers the index is different depending on the NIC installed.
-EOU
-
-}
 
 # Print results and exit script
 sub stop {
@@ -388,22 +340,116 @@ sub format_volume_bytes {
     return $x . $prefix_x;
 }
 
-my $status = GetOptions(
-    "A|address=s"                 => \$host_ip,
-    "B|Bytes"                     => \$bytes,
-    "b|bandwidth|I|inBandwidth=i" => \$iface_speed,
-    "C|community=s"               => \$COMMUNITY,
-    "c|critical=s"                => \$crit_usage,
-    "H|hostname=s"                => \$host_address,
-    "h|help"                      => \$opt_h,
-    "i|interface=s"               => \$iface_descr,
-    "M|max=i"                     => \$max_value,
-    "O|outBandwidth=i"            => \$iface_speedOut,
-    "p|port=i"                    => \$port,
-    "r|noregexp"                  => \$use_reg,
-    "u|units=s"                   => \$units,
-    "w|warning=s"                 => \$warn_usage
+my $np = Nagios::Plugin->new(
+	usage => "%s -H host [ -C community_string ] [ -p port ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ]",
+	version => "5.0",
+	url => "https://github.com/bernhardschmidt/nagios-check-iftraffic",
+	license => "GPLv3",
+	plugin => "check_iftraffic.pl",
+	timeout => 10,
+	extra => "\n\n" .
+		"Example 1: check_iftraffic3.pl -H host1 -C sneaky\n" .
+		"Example 2: check_iftraffic3.pl -H host1 -C sneaky -i \"Intel Pro\" -r -B\n" .
+		"Example 3: check_iftraffic3.pl -H host1 -C sneaky -i 5\n" . 
+		"Example 4: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 100 -u m\n" .
+		"Example 5: check_iftraffic3.pl -H host1 -C sneaky -i 5 -B -b 20 -O 5 -u m\n" .
+		"Example 6: check_iftraffic3.pl -H host1 -C sneaky -A 192.168.1.1 -B -b 100 -u m\n",
 );
+
+$np->add_arg(
+	spec	=> 'bytes|B',
+	help	=> "Display results in Bytes per second B/s (default: bits/s)",
+);
+
+$np->add_arg(
+	spec	=> 'hostname|H=s',
+	help	=> 'Host name or IP address (required)',
+	required	=> 1,
+	label	=> 'ADDRESS'
+);
+
+$np->add_arg(
+	spec	=> 'community|C=s',
+	help	=> "SNMP Community (default: %s)",
+	default	=> "public",
+);
+
+$np->add_arg(
+	spec	=> 'port|p=i',
+	help	=> "SNMP Port (default: %s)",
+	default	=> 161
+);
+
+$np->add_arg(
+	spec	=> 'interface|i=s',
+	help	=> 'Interface Name or Index'
+);
+
+$np->add_arg(
+	spec	=> 'bandwidth|b|I|inBandwidth=i',
+	help	=> "Interface maximum speed in kilo/mega/giga/bits per second.  Applied to\n" .
+		"   both IN and OUT if no second (-O) max speed is provided. (default: autodetect)"
+);
+
+$np->add_arg(
+	spec	=> 'outBandwidth|O=i',
+	help	=> "Interface maximum speed in kilo/mega/giga/bits per second.  Applied to\n" .
+		"   OUT traffic.  Uses the same units value given for -b."
+);
+
+$np->add_arg(
+	spec	=> 'regexp|r=s',
+	help	=> "Use regexp to match NAME in description OID"
+);
+
+$np->add_arg(
+	spec	=> 'units|u=s',
+	help	=> "g=gigabits/s,m=megabits/s,k=kilobits/s,b=bits/s.  Required if -b, -I, or\n" .
+		"   -O are used.",
+);
+
+$np->add_arg(
+	spec	=> 'warning|w=i',
+	help	=> "% of bandwidth usage necessary to result in warning status (default: %s\%)",
+	default	=> 85,
+);
+
+$np->add_arg(
+	spec	=> 'critical|c=i',
+	help	=> "% of bandwidth usage necessary to result in critical status (default: %s\%)",
+	default	=> 98,
+);
+
+$np->add_arg(
+	spec	=> 'max|M=i',
+	help	=> "Max Counter Value of net devices in kilo/mega/giga/bytes.",
+);
+
+$np->add_arg(
+    spec 	=> 'address|A=s',
+    help	=> "IP Address to use when determining the interface index to use.  Can be\n" .
+	"   used when the index changes frequently or as in the case of Windows\n" .
+	"   servers the index is different depending on the NIC installed.",
+    label	=> 'IPADDRESS',
+);
+
+
+$np->getopts();
+
+# Legacy variable assignments
+$host_ip = $np->opts->address;
+$bytes = $np->opts->bytes;
+$iface_speed = $np->opts->bandwidth;
+$COMMUNITY = $np->opts->community;
+$crit_usage = $np->opts->critical;
+$host_address = $np->opts->hostname;
+$iface_descr = $np->opts->interface;
+$max_value = $np->opts->max;
+$iface_speedOut = $np->opts->outBandwidth;
+$port = $np->opts->port;
+$use_reg = $np->opts->regexp;
+$units = $np->opts->units;
+$warn_usage = $np->opts->warning;
 
 # Check for missing options
 if ( !$host_address ) {
