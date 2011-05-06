@@ -82,10 +82,11 @@
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307
 
 #For perl 5.12. We use it.
-use 5.012;
+#use 5.012;
 
 #For perl 5.10
-#use feature qw(switch say);
+use feature qw(switch say);
+
 #For older versions of perl
 #use Switch;
 
