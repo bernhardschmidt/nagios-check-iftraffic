@@ -432,7 +432,7 @@ $np->add_arg(
 
 $np->getopts();
 
-$threshold = Nagios::Plugin::Threshold->set_thresholds(
+$threshold = $np->set_thresholds(
 	warning		=> $np->opts->warning,
 	critical	=> $np->opts->critical
 );
@@ -656,7 +656,7 @@ if ( ( $in_usage > $crit_usage ) or ( $out_usage > $crit_usage ) ) {
     $state = "CRITICAL";
 }
 
-$output = "$state - $output" if ( $state ne "OK" );
+$output = "$output" if ( $state ne "OK" );
 
 $np->add_perfdata(
 	label	=> "inUsage",
@@ -688,5 +688,5 @@ $np->add_perfdata(
 	label	=> "outAbsolut",
 	value	=> $out_traffic_absolut );
 
-$np->nagios_stop( $output, $state );
+$np->nagios_exit( $state, $output );
 
