@@ -132,9 +132,6 @@ my $response;
 # Path to  tmp files
 my $TRAFFIC_FILE = "/tmp/traffic";
 
-my %STATUS_CODE =
-  ( 'UNKNOWN' => '3', 'OK' => '0', 'WARNING' => '1', 'CRITICAL' => '2' );
-
 #default values;
 my $state     = "UNKNOWN";
 my $if_status = '4';
@@ -151,16 +148,10 @@ my $label      = "Bytes";
 my $max_value;
 my $max_bits;
 
+my $np;
+
 #Need to check this
 my $use_reg = undef;    # Use Regexp for name
-
-# Print results and exit script
-sub stop {
-    my $result    = shift;
-    my $exit_code = shift;
-    print $result . "\n";
-    exit( $STATUS_CODE{$exit_code} );
-}
 
 sub bytes2bits {
     return unit2bytes(@_) * 8;
@@ -203,7 +194,7 @@ sub get_ip {
         }
     }
     else {
-        stop( "Error: IP address not resolved\n", "UNKNOWN" );
+        $np->nagios_die( "Error: IP address not resolved" );
     }
 }
 
@@ -224,7 +215,7 @@ sub fetch_Ip2IfIndex {
     if ( !defined( $response = $session->get_table($snmpIPAdEntIfIndex) ) ) {
         $answer = $session->error;
         $session->close;
-        stop( "CRITICAL: SNMP error: $answer\n", "CRITICAL" );
+        $np->nagios_die( "SNMP error: $answer", "CRITICAL" );
     }
 
     my %resp = %{$response};
@@ -237,7 +228,7 @@ sub fetch_Ip2IfIndex {
     }
     unless ( defined $snmpkey ) {
         $session->close;
-        stop( "CRITICAL: Could not match $host\n", "CRITICAL" );
+        $np->nagios_die( "Could not match $host", "CRITICAL" );
     }
     return $snmpkey;
 }
@@ -253,7 +244,7 @@ sub fetch_ifdescr {
     if ( !defined( $response = $session->get_table($snmpIfDescr) ) ) {
         $answer = $session->error;
         $session->close;
-        stop( "CRITICAL: SNMP error: $answer\n", "CRITICAL" );
+        $np->nagios_die( "SNMP error: $answer", "CRITICAL" );
     }
 
     foreach $key ( keys %{$response} ) {
@@ -271,7 +262,7 @@ sub fetch_ifdescr {
     }
     unless ( defined $snmpkey ) {
         $session->close;
-        stop( "CRITICAL: Could not match $ifdescr\n", "CRITICAL" );
+        $np->nagios_die( "Could not match $ifdescr", "CRITICAL" );
     }
     return $snmpkey;
 }
@@ -340,7 +331,7 @@ sub format_volume_bytes {
     return $x . $prefix_x;
 }
 
-my $np = Nagios::Plugin->new(
+$np = Nagios::Plugin->new(
 	usage => "%s -H host [ -C community_string ] [ -p port ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ]",
 	version => "5.0",
 	url => "https://github.com/bernhardschmidt/nagios-check-iftraffic",
@@ -452,21 +443,14 @@ $units = $np->opts->units;
 $warn_usage = $np->opts->warning;
 
 # Check for missing options
-if ( !$host_address ) {
-    print "\nMissing host address!\n\n";
-    stop( print_usage(), "UNKNOWN" );
-}
 if ( ($iface_speed) and ( !$units ) ) {
-    print "\nMissing units!\n\n";
-    stop( print_usage(), "UNKNOWN" );
+    $np->nagios_die( "Missing units! ");
 }
 if ( ($units) and ( ( !$iface_speed ) and ( !$iface_speedOut ) ) ) {
-    print "\nMissing interface maximum speed!\n\n";
-    stop( print_usage(), "UNKNOWN" );
+    $np->nagios_die( "Missing interface maximum speed!" );
 }
 if ( ($iface_speedOut) and ( !$units ) ) {
-    print "\nMissing units for Out maximum speed!\n\n";
-    stop( print_usage(), "UNKNOWN" );
+    $np->nagios_die( "Missing units for Out maximum speed!" );
 }
 if ( !$units ) {
     $units = "b";
@@ -505,16 +489,14 @@ if ( $snmp_version =~ /[12]/ ) {
         -version   => $snmp_version
     );
     if ( !defined($session) ) {
-        stop( "UNKNOWN: $error", "UNKNOWN" );
+        $np->nagios_die( $error );
     }
 }
 elsif ( $snmp_version =~ /3/ ) {
-    $state = 'UNKNOWN';
-    stop( "$state: No support for SNMP v3 yet\n", $state );
+    $np->nagios_die( "No support for SNMPv3 yet" );
 }
 else {
-    $state = 'UNKNOWN';
-    stop( "$state: Unknown SNMP v$snmp_version\n", $state );
+    $np->nagios_die( "Unknown SNMP version: $snmp_version" );
 }
 
 # Neither Interface Index nor Host IP address were specified
@@ -547,7 +529,7 @@ push( @snmpoids, $snmpIfOutOctets . "." . $iface_number );
 if ( !defined( $response = $session->get_request(@snmpoids) ) ) {
     my $answer = $session->error;
     $session->close;
-    stop( "WARNING: SNMP error: $answer\n", "WARNING" );
+    $np->nagios_die( "SNMP error: $answer", "WARNING" );
 }
 
 if ( !$iface_speed ) {
@@ -573,7 +555,7 @@ my $update_time     = time;
 my $last_check_time = $update_time - 1;
 
 if ( $if_status != 1 ) {
-    stop( "CRITICAL: SNMP error: Interface $iface_descr is down!\n",
+    $np->nagios_die( "SNMP error: Interface $iface_descr is down!",
         "CRITICAL" );
 }
 
@@ -687,5 +669,5 @@ $output .=
   . $suffix
   . " inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut";
 
-stop( $output, $state );
+$np->nagios_stop( $output, $state );
 
