@@ -28,7 +28,7 @@
 # gj = Greg Frater gregATfraterfactory.com
 # Remarks (gj):
 # minor (gj):
-# 
+#
 #	* fixed the performance data, formating was not to spec
 # 	* Added a check of the interfaces status (up/down).
 #	  If down the check returns a critical status.
@@ -40,8 +40,8 @@
 #	  speeds are different
 #	* Added -B option to display results in bits/sec instead of Bytes/sec
 #	* Added the current usage in Bytes/s (or bit/s) to the perfdata output
-#	* Added ability for plugin to determine interface to query by matching IP 
-#	  address of host with entry in ipAdEntIfIndex (.1.3.6.1.2.1.4.20.1.2) 
+#	* Added ability for plugin to determine interface to query by matching IP
+#	  address of host with entry in ipAdEntIfIndex (.1.3.6.1.2.1.4.20.1.2)
 #	* Added -L flag to list entries found in the ipAdEntIfIndex table
 #	Otherwise, it works as before.
 #
@@ -83,6 +83,7 @@
 
 #For perl 5.12. We use it.
 use 5.012;
+
 #For perl 5.10
 #use feature qw(switch say);
 #For older versions of perl
@@ -114,16 +115,18 @@ my $snmp_version = 2;
 my @snmpoids;
 
 # SNMP OIDs for Traffic
-my $snmpIfOperStatus 	= '1.3.6.1.2.1.2.2.1.8';
+my $snmpIfOperStatus = '1.3.6.1.2.1.2.2.1.8';
+
 #Older 32-bit counter:
 #my $snmpIfInOctets  	= '1.3.6.1.2.1.2.2.1.10';
-my $snmpIfInOctets  	= '1.3.6.1.2.1.31.1.1.1.6';
+my $snmpIfInOctets = '1.3.6.1.2.1.31.1.1.1.6';
+
 #Older 32-bit counter:
 #my $snmpIfOutOctets 	= '1.3.6.1.2.1.2.2.1.16';
-my $snmpIfOutOctets 	= '1.3.6.1.2.1.31.1.1.1.10';
-my $snmpIfDescr     	= '1.3.6.1.2.1.2.2.1.2';
-my $snmpIfSpeed     	= '1.3.6.1.2.1.2.2.1.5';
-my $snmpIPAdEntIfIndex 	= '1.3.6.1.2.1.4.20.1.2';
+my $snmpIfOutOctets    = '1.3.6.1.2.1.31.1.1.1.10';
+my $snmpIfDescr        = '1.3.6.1.2.1.2.2.1.2';
+my $snmpIfSpeed        = '1.3.6.1.2.1.2.2.1.5';
+my $snmpIPAdEntIfIndex = '1.3.6.1.2.1.4.20.1.2';
 
 my $response;
 
@@ -134,25 +137,25 @@ my %STATUS_CODE =
   ( 'UNKNOWN' => '3', 'OK' => '0', 'WARNING' => '1', 'CRITICAL' => '2' );
 
 #default values;
-my $state = "UNKNOWN";
+my $state     = "UNKNOWN";
 my $if_status = '4';
 my ( $in_bits, $out_bits ) = 0;
 my $warn_usage = 85;
 my $crit_usage = 98;
 my $COMMUNITY  = "public";
-my $output = "";
-my $bytes = undef; 
-my $suffix = "bps";
-my $label = "Bytes";
+my $output     = "";
+my $bytes      = undef;
+my $suffix     = "bps";
+my $label      = "Bytes";
 
 my $max_value;
 my $max_bits;
 
 #Need to check this
-my $use_reg    =  undef;  # Use Regexp for name
+my $use_reg = undef;    # Use Regexp for name
 
 sub print_usage {
-	print <<EOU;
+    print <<EOU;
     Usage: check_iftraffic3.pl -H host [ -C community_string ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ]
 
     Example 1: check_iftraffic3.pl -H host1 -C sneaky
@@ -200,285 +203,293 @@ EOU
 
 # Print results and exit script
 sub stop {
- my $result = shift;
- my $exit_code = shift;
- print $result . "\n";
- exit ( $STATUS_CODE{$exit_code} );
-};
+    my $result    = shift;
+    my $exit_code = shift;
+    print $result . "\n";
+    exit( $STATUS_CODE{$exit_code} );
+}
 
 sub bytes2bits {
- return unit2bytes(@_)*8;
-};
+    return unit2bytes(@_) * 8;
+}
 
 #Converts an input value to value in bytes
 sub unit2bytes {
- my ( $value, $unit ) = @_;
- given ($unit) {
-  when ('G') { return $value*1073741824; }
-  when ('M') { return $value*1048576; }
-  when ('K') { return $value*1024; }
-  default { return $value }
- };
-};
+    my ( $value, $unit ) = @_;
+    given ($unit) {
+        when ('G') { return $value * 1073741824; }
+        when ('M') { return $value * 1048576; }
+        when ('K') { return $value * 1024; }
+        default    { return $value }
+    };
+}
 
 sub unit2bits {
- my ( $value, $unit ) = @_;
- given ($unit) {
-  when ('g') { return $value*1000000000; }
-  when ('m') { return $value*1000000; }
-  when ('k') { return $value*1000; }
-  default { return $value }
- };
-};
+    my ( $value, $unit ) = @_;
+    given ($unit) {
+        when ('g') { return $value * 1000000000; }
+        when ('m') { return $value * 1000000; }
+        when ('k') { return $value * 1000; }
+        default    { return $value }
+    };
+}
 
 # Added 20100405 by gj
 # Lookup hosts ip address
 sub get_ip {
- use Net::DNS;
+    use Net::DNS;
 
- my ( $host_name ) = @_;
- my $res = Net::DNS::Resolver->new;
- my $query = $res->search($host_name);
+    my ($host_name) = @_;
+    my $res         = Net::DNS::Resolver->new;
+    my $query       = $res->search($host_name);
 
- if ($query) {
-  foreach my $rr ($query->answer) {
-   next unless $rr->type eq "A";
-   return $rr->address;
-  }
- } else {
-  stop("Error: IP address not resolved\n","UNKNOWN");
- }
-};
+    if ($query) {
+        foreach my $rr ( $query->answer ) {
+            next unless $rr->type eq "A";
+            return $rr->address;
+        }
+    }
+    else {
+        stop( "Error: IP address not resolved\n", "UNKNOWN" );
+    }
+}
 
 sub fetch_Ip2IfIndex {
- my $response;
- my $snmpkey;
- my $answer;
- my $key;
+    my $response;
+    my $snmpkey;
+    my $answer;
+    my $key;
 
- my ( $session, $host ) = @_;
+    my ( $session, $host ) = @_;
 
- # Determine if we have a host name or IP addr
- if ( $host !~ /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/ ) {
-  $host = get_ip ( $host );
- };
+    # Determine if we have a host name or IP addr
+    if ( $host !~ /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/ ) {
+        $host = get_ip($host);
+    }
 
- # Quit if results not found
- if ( !defined( $response = $session->get_table($snmpIPAdEntIfIndex) ) ) {
-  $answer = $session->error;
-  $session->close;
-  stop("CRITICAL: SNMP error: $answer\n", "CRITICAL");
- };
+    # Quit if results not found
+    if ( !defined( $response = $session->get_table($snmpIPAdEntIfIndex) ) ) {
+        $answer = $session->error;
+        $session->close;
+        stop( "CRITICAL: SNMP error: $answer\n", "CRITICAL" );
+    }
 
- my %resp = %{$response};
- foreach $key ( keys %resp ) {
-  # Check for ip address mathcin in returned index results
-  if ( $key =~ /$host$/ ) {
-   $snmpkey = $resp{$key};
-  }
- }
- unless ( defined $snmpkey ) {
-  $session->close;
-  stop("CRITICAL: Could not match $host\n", "CRITICAL");
- }
- return $snmpkey;
-};
+    my %resp = %{$response};
+    foreach $key ( keys %resp ) {
+
+        # Check for ip address mathcin in returned index results
+        if ( $key =~ /$host$/ ) {
+            $snmpkey = $resp{$key};
+        }
+    }
+    unless ( defined $snmpkey ) {
+        $session->close;
+        stop( "CRITICAL: Could not match $host\n", "CRITICAL" );
+    }
+    return $snmpkey;
+}
 
 sub fetch_ifdescr {
- my $response;
- my $snmpkey;
- my $answer;
- my $key;
+    my $response;
+    my $snmpkey;
+    my $answer;
+    my $key;
 
- my ( $session, $ifdescr ) = @_;
+    my ( $session, $ifdescr ) = @_;
 
- if ( !defined( $response = $session->get_table($snmpIfDescr) ) ) {
-  $answer = $session->error;
-  $session->close;
-  stop("CRITICAL: SNMP error: $answer\n", "CRITICAL");
- };
+    if ( !defined( $response = $session->get_table($snmpIfDescr) ) ) {
+        $answer = $session->error;
+        $session->close;
+        stop( "CRITICAL: SNMP error: $answer\n", "CRITICAL" );
+    }
 
- foreach $key ( keys %{$response} ) {
+    foreach $key ( keys %{$response} ) {
 
-  # added 20070816 by oer: remove trailing 0 Byte for Windows :-(
-  my $resp=$response->{$key};
-  $resp =~ s/\x00//;
+        # added 20070816 by oer: remove trailing 0 Byte for Windows :-(
+        my $resp = $response->{$key};
+        $resp =~ s/\x00//;
 
-  my $test = defined($use_reg) ? $resp =~ /$ifdescr/ : $resp eq $ifdescr; 
+        my $test = defined($use_reg) ? $resp =~ /$ifdescr/ : $resp eq $ifdescr;
 
-  if ($test) {
-   $key =~ /.*\.(\d+)$/;
-   $snmpkey = $1;
-  }
- }
- unless ( defined $snmpkey ) {
-  $session->close;
-  stop("CRITICAL: Could not match $ifdescr\n", "CRITICAL");
- }
- return $snmpkey;
-};
+        if ($test) {
+            $key =~ /.*\.(\d+)$/;
+            $snmpkey = $1;
+        }
+    }
+    unless ( defined $snmpkey ) {
+        $session->close;
+        stop( "CRITICAL: Could not match $ifdescr\n", "CRITICAL" );
+    }
+    return $snmpkey;
+}
 
 sub format_volume {
- my $prefix_x;
- my ($x)=@_;
+    my $prefix_x;
+    my ($x) = @_;
 
- if ( $x>1000000000000000000 ) {
-  $x=$x/1000000000000000000;
-  $prefix_x="E";
- };
- if ( $x>1000000000000000 ) {
-  $x=$x/1000000000000000;
-  $prefix_x="P";
- };
- if ( $x>1000000000000 ) {
-  $x=$x/1000000000000;
-  $prefix_x="T";
- };
- if ( $x>1000000000 ) {
-  $x=$x/1000000000;
-  $prefix_x="G";
- };
- if ( $x>1000000 ) {
-  $x=$x/1000000;
-  $prefix_x="M";
- };
- if ( $x>1000 ) {
-  $x=$x/1000;
-  $prefix_x="K";
- };
- $x=sprintf("%.2f",$x);
- return $x.$prefix_x;
-};
+    if ( $x > 1000000000000000000 ) {
+        $x        = $x / 1000000000000000000;
+        $prefix_x = "E";
+    }
+    if ( $x > 1000000000000000 ) {
+        $x        = $x / 1000000000000000;
+        $prefix_x = "P";
+    }
+    if ( $x > 1000000000000 ) {
+        $x        = $x / 1000000000000;
+        $prefix_x = "T";
+    }
+    if ( $x > 1000000000 ) {
+        $x        = $x / 1000000000;
+        $prefix_x = "G";
+    }
+    if ( $x > 1000000 ) {
+        $x        = $x / 1000000;
+        $prefix_x = "M";
+    }
+    if ( $x > 1000 ) {
+        $x        = $x / 1000;
+        $prefix_x = "K";
+    }
+    $x = sprintf( "%.2f", $x );
+    return $x . $prefix_x;
+}
 
 sub format_volume_bytes {
- my $prefix_x;
- my ($x)=@_;
+    my $prefix_x;
+    my ($x) = @_;
 
- if ( $x>1152921504606846976 ) {
-  $x=$x/1152921504606846976;
-  $prefix_x="E";
- };
- if ( $x>1125899906842624 ) {
-  $x=$x/1125899906842624;
-  $prefix_x="P";
- };
- if ( $x>1099511627776 ) {
-  $x=$x/1099511627776;
-  $prefix_x="T";
- };
- if ( $x>1073741824 ) {
-  $x=$x/1073741824;
-  $prefix_x="G";
- };
- if ( $x>1048576 ) {
-  $x=$x/1048576;
-  $prefix_x="M";
- };
- if ( $x>1024 ) {
-  $x=$x/1024;
-  $prefix_x="K";
- };
- $x=sprintf("%.2f",$x);
- return $x.$prefix_x;
-};
-
+    if ( $x > 1152921504606846976 ) {
+        $x        = $x / 1152921504606846976;
+        $prefix_x = "E";
+    }
+    if ( $x > 1125899906842624 ) {
+        $x        = $x / 1125899906842624;
+        $prefix_x = "P";
+    }
+    if ( $x > 1099511627776 ) {
+        $x        = $x / 1099511627776;
+        $prefix_x = "T";
+    }
+    if ( $x > 1073741824 ) {
+        $x        = $x / 1073741824;
+        $prefix_x = "G";
+    }
+    if ( $x > 1048576 ) {
+        $x        = $x / 1048576;
+        $prefix_x = "M";
+    }
+    if ( $x > 1024 ) {
+        $x        = $x / 1024;
+        $prefix_x = "K";
+    }
+    $x = sprintf( "%.2f", $x );
+    return $x . $prefix_x;
+}
 
 my $status = GetOptions(
- "A|address=s"   => \$host_ip,
- "B|Bytes"       => \$bytes,
- "b|bandwidth|I|inBandwidth=i" => \$iface_speed,
- "C|community=s" => \$COMMUNITY,
- "c|critical=s"  => \$crit_usage,
- "H|hostname=s"  => \$host_address,
- "h|help"        => \$opt_h,
- "i|interface=s" => \$iface_descr,
- "M|max=i"       => \$max_value,
- "O|outBandwidth=i" => \$iface_speedOut,
- "p|port=i"      => \$port,
- "r|noregexp"    => \$use_reg,
- "u|units=s"     => \$units,
- "w|warning=s"   => \$warn_usage
+    "A|address=s"                 => \$host_ip,
+    "B|Bytes"                     => \$bytes,
+    "b|bandwidth|I|inBandwidth=i" => \$iface_speed,
+    "C|community=s"               => \$COMMUNITY,
+    "c|critical=s"                => \$crit_usage,
+    "H|hostname=s"                => \$host_address,
+    "h|help"                      => \$opt_h,
+    "i|interface=s"               => \$iface_descr,
+    "M|max=i"                     => \$max_value,
+    "O|outBandwidth=i"            => \$iface_speedOut,
+    "p|port=i"                    => \$port,
+    "r|noregexp"                  => \$use_reg,
+    "u|units=s"                   => \$units,
+    "w|warning=s"                 => \$warn_usage
 );
 
 # Check for missing options
-if (!$host_address)  {
- print  "\nMissing host address!\n\n";
- stop(print_usage(),"UNKNOWN");
-};
-if (($iface_speed) and (!$units) ){
- print "\nMissing units!\n\n";
- stop(print_usage(),"UNKNOWN");
-};
-if (($units) and ((!$iface_speed) and  (!$iface_speedOut))) {
- print "\nMissing interface maximum speed!\n\n";
- stop(print_usage(),"UNKNOWN");
-};
-if (($iface_speedOut) and (!$units)) {
- print "\nMissing units for Out maximum speed!\n\n";
- stop(print_usage(),"UNKNOWN");
-};
-if (!$units) {
- $units="b";
-};
-if (($iface_speed) and ($bytes)) {
- $iface_speed = bytes2bits( $iface_speed, $units );
- if ( $iface_speedOut ) { $iface_speedOut = bytes2bits( $iface_speedOut, $units ); };
-} elsif ($iface_speed) {
- $iface_speed = unit2bits( $iface_speed, $units );
- if ( $iface_speedOut ) { $iface_speedOut = unit2bits( $iface_speedOut, $units ); };
-};
-
+if ( !$host_address ) {
+    print "\nMissing host address!\n\n";
+    stop( print_usage(), "UNKNOWN" );
+}
+if ( ($iface_speed) and ( !$units ) ) {
+    print "\nMissing units!\n\n";
+    stop( print_usage(), "UNKNOWN" );
+}
+if ( ($units) and ( ( !$iface_speed ) and ( !$iface_speedOut ) ) ) {
+    print "\nMissing interface maximum speed!\n\n";
+    stop( print_usage(), "UNKNOWN" );
+}
+if ( ($iface_speedOut) and ( !$units ) ) {
+    print "\nMissing units for Out maximum speed!\n\n";
+    stop( print_usage(), "UNKNOWN" );
+}
+if ( !$units ) {
+    $units = "b";
+}
+if ( ($iface_speed) and ($bytes) ) {
+    $iface_speed = bytes2bits( $iface_speed, $units );
+    if ($iface_speedOut) {
+        $iface_speedOut = bytes2bits( $iface_speedOut, $units );
+    }
+}
+elsif ($iface_speed) {
+    $iface_speed = unit2bits( $iface_speed, $units );
+    if ($iface_speedOut) {
+        $iface_speedOut = unit2bits( $iface_speedOut, $units );
+    }
+}
 
 # If no -M Parameter was set, set it to 64Bit Overflow
 if ( !$max_value ) {
-  $max_bits = 18446744073709551616;
-} else {
- if (!$bytes) {
-  $max_bits = unit2bits( $max_value, $units );
- }
- else {
-  $max_bits = bytes2bits( $max_value, $units );
- };
-};
-
-
-if ( $snmp_version =~ /[12]/ ) {
- ( $session, $error ) = Net::SNMP->session(
-  -hostname  => $host_address,
-  -community => $COMMUNITY,
-  -port      => $port,
-  -version   => $snmp_version
- );
- if ( !defined($session) ) {
-  stop("UNKNOWN: $error","UNKNOWN");
- };
-}
-elsif ( $snmp_version =~ /3/ ) {
- $state = 'UNKNOWN';
- stop("$state: No support for SNMP v3 yet\n",$state);
+    $max_bits = 18446744073709551616;
 }
 else {
- $state = 'UNKNOWN';
- stop("$state: Unknown SNMP v$snmp_version\n",$state);
-};
-
-
-# Neither Interface Index nor Host IP address were specified 
-if ( !$iface_descr ) {
- if ( !$host_ip ) {
- # try to resolve host name and find index from ip addr
- $iface_descr = fetch_Ip2IfIndex( $session, $host_address );
- } else {
-  # Use ip addr to find index
-  $iface_descr = fetch_Ip2IfIndex( $session, $host_ip );
- }
+    if ( !$bytes ) {
+        $max_bits = unit2bits( $max_value, $units );
+    }
+    else {
+        $max_bits = bytes2bits( $max_value, $units );
+    }
 }
 
-# Detect if a string description was given or a numberic interface index number 
+if ( $snmp_version =~ /[12]/ ) {
+    ( $session, $error ) = Net::SNMP->session(
+        -hostname  => $host_address,
+        -community => $COMMUNITY,
+        -port      => $port,
+        -version   => $snmp_version
+    );
+    if ( !defined($session) ) {
+        stop( "UNKNOWN: $error", "UNKNOWN" );
+    }
+}
+elsif ( $snmp_version =~ /3/ ) {
+    $state = 'UNKNOWN';
+    stop( "$state: No support for SNMP v3 yet\n", $state );
+}
+else {
+    $state = 'UNKNOWN';
+    stop( "$state: Unknown SNMP v$snmp_version\n", $state );
+}
+
+# Neither Interface Index nor Host IP address were specified
+if ( !$iface_descr ) {
+    if ( !$host_ip ) {
+
+        # try to resolve host name and find index from ip addr
+        $iface_descr = fetch_Ip2IfIndex( $session, $host_address );
+    }
+    else {
+
+        # Use ip addr to find index
+        $iface_descr = fetch_Ip2IfIndex( $session, $host_ip );
+    }
+}
+
+# Detect if a string description was given or a numberic interface index number
 if ( $iface_descr =~ /[^0123456789]+/ ) {
- $iface_number = fetch_ifdescr( $session, $iface_descr );
-} else {
- $iface_number = $iface_descr;
+    $iface_number = fetch_ifdescr( $session, $iface_descr );
+}
+else {
+    $iface_number = $iface_descr;
 }
 
 push( @snmpoids, $snmpIfSpeed . "." . $iface_number );
@@ -487,115 +498,147 @@ push( @snmpoids, $snmpIfInOctets . "." . $iface_number );
 push( @snmpoids, $snmpIfOutOctets . "." . $iface_number );
 
 if ( !defined( $response = $session->get_request(@snmpoids) ) ) {
- my $answer = $session->error;
- $session->close;
- stop("WARNING: SNMP error: $answer\n", "WARNING");
+    my $answer = $session->error;
+    $session->close;
+    stop( "WARNING: SNMP error: $answer\n", "WARNING" );
 }
 
 if ( !$iface_speed ) {
- $iface_speed = $response->{ $snmpIfSpeed . "." . $iface_number };
+    $iface_speed = $response->{ $snmpIfSpeed . "." . $iface_number };
 }
+
 # Check if Out max speed was provided, use same if speed for both if not
-if (!$iface_speedOut) {
- $iface_speedOut = $iface_speed;
+if ( !$iface_speedOut ) {
+    $iface_speedOut = $iface_speed;
 }
-
-
 
 $if_status = $response->{ $snmpIfOperStatus . "." . $iface_number };
-$in_bits  = $response->{ $snmpIfInOctets . "." . $iface_number }*8;
-$out_bits = $response->{ $snmpIfOutOctets . "." . $iface_number }*8;
+$in_bits   = $response->{ $snmpIfInOctets . "." . $iface_number } * 8;
+$out_bits  = $response->{ $snmpIfOutOctets . "." . $iface_number } * 8;
 
 #We retain the absolute values in bytes for RRD. It doesn't matter that the counter may overflow.
-my $in_traffic_absolut=$response->{ $snmpIfInOctets . "." . $iface_number };
-my $out_traffic_absolut=$response->{ $snmpIfOutOctets . "." . $iface_number };
+my $in_traffic_absolut  = $response->{ $snmpIfInOctets . "." . $iface_number };
+my $out_traffic_absolut = $response->{ $snmpIfOutOctets . "." . $iface_number };
 
 $session->close;
 
-my $update_time = time;
+my $update_time     = time;
 my $last_check_time = $update_time - 1;
 
 if ( $if_status != 1 ) {
- stop("CRITICAL: SNMP error: Interface $iface_descr is down!\n", "CRITICAL");
-};
+    stop( "CRITICAL: SNMP error: Interface $iface_descr is down!\n",
+        "CRITICAL" );
+}
 
 my $row;
-my $last_in_bits   = $in_bits;
-my $last_out_bits  = $out_bits;
+my $last_in_bits  = $in_bits;
+my $last_out_bits = $out_bits;
 
-if ( open(FILE,"<".$TRAFFIC_FILE."_if".$iface_number."_".$host_address)) {
- while ( $row = <FILE> ) {
-  ( $last_check_time, $last_in_bits, $last_out_bits ) = split( ":", $row );
-  if (!$last_in_bits) { $last_in_bits=$in_bits;  }
-  if (!$last_out_bits) { $last_out_bits=$out_bits; }
-  if ($last_in_bits !~ m/\d/) { $last_in_bits=$in_bits; }
-  if ($last_out_bits !~ m/\d/) { $last_out_bits=$out_bits; }
- }
- close(FILE);
+if (
+    open( FILE,
+        "<" . $TRAFFIC_FILE . "_if" . $iface_number . "_" . $host_address
+    )
+  )
+{
+    while ( $row = <FILE> ) {
+        ( $last_check_time, $last_in_bits, $last_out_bits ) =
+          split( ":", $row );
+        if ( !$last_in_bits )          { $last_in_bits  = $in_bits; }
+        if ( !$last_out_bits )         { $last_out_bits = $out_bits; }
+        if ( $last_in_bits !~ m/\d/ )  { $last_in_bits  = $in_bits; }
+        if ( $last_out_bits !~ m/\d/ ) { $last_out_bits = $out_bits; }
+    }
+    close(FILE);
 }
 
-if ( open(FILE,">".$TRAFFIC_FILE."_if".$iface_number."_".$host_address )) {
- printf FILE ("%s:%.0ld:%.0ld\n", $update_time, $in_bits, $out_bits );
- close(FILE);
-};
+if (
+    open( FILE,
+        ">" . $TRAFFIC_FILE . "_if" . $iface_number . "_" . $host_address
+    )
+  )
+{
+    printf FILE ( "%s:%.0ld:%.0ld\n", $update_time, $in_bits, $out_bits );
+    close(FILE);
+}
 
-my $in_traffic=0;
-my $out_traffic=0;
+my $in_traffic  = 0;
+my $out_traffic = 0;
 
 if ( $in_bits < $last_in_bits ) {
-  $in_bits = $in_bits + ($max_bits-$last_in_bits);
-  $in_traffic = $in_bits/($update_time-$last_check_time);
-} else { $in_traffic = ($in_bits-$last_in_bits)/($update_time-$last_check_time); };
+    $in_bits    = $in_bits + ( $max_bits - $last_in_bits );
+    $in_traffic = $in_bits / ( $update_time - $last_check_time );
+}
+else {
+    $in_traffic =
+      ( $in_bits - $last_in_bits ) / ( $update_time - $last_check_time );
+}
 
 if ( $out_bits < $last_out_bits ) {
-  $out_bits = $out_bits + ($max_bits-$last_out_bits);
-  $out_traffic = $out_bits/($update_time-$last_check_time);
-} else { $out_traffic = ($out_bits-$last_out_bits)/($update_time-$last_check_time); };
+    $out_bits    = $out_bits + ( $max_bits - $last_out_bits );
+    $out_traffic = $out_bits / ( $update_time - $last_check_time );
+}
+else {
+    $out_traffic =
+      ( $out_bits - $last_out_bits ) / ( $update_time - $last_check_time );
+}
 
 # Calculate usage percentages
-my $in_usage  = ($in_traffic*100)/$iface_speed;
-my $out_usage = ($out_traffic*100)/$iface_speedOut;
+my $in_usage  = ( $in_traffic * 100 ) / $iface_speed;
+my $out_usage = ( $out_traffic * 100 ) / $iface_speedOut;
 
 if ($bytes) {
- # Convert output from bits to bytes
- $in_traffic = $in_traffic/8;
- $out_traffic = $out_traffic/8;
- $suffix = "Bs";
+
+    # Convert output from bits to bytes
+    $in_traffic  = $in_traffic / 8;
+    $out_traffic = $out_traffic / 8;
+    $suffix      = "Bs";
 }
 
-my $in=format_volume($in_traffic);
-my $out=format_volume($out_traffic);
+my $in  = format_volume($in_traffic);
+my $out = format_volume($out_traffic);
 
-my $rx=format_volume_bytes($in_traffic_absolut);
-my $tx=format_volume_bytes($out_traffic_absolut);
+my $rx = format_volume_bytes($in_traffic_absolut);
+my $tx = format_volume_bytes($out_traffic_absolut);
 
 #Convert percentages to a more visual format
-$in_usage  = sprintf("%.2f", $in_usage);
-$out_usage = sprintf("%.2f", $out_usage);
+$in_usage  = sprintf( "%.2f", $in_usage );
+$out_usage = sprintf( "%.2f", $out_usage );
 
 #Convert performance to a more visual format
-$in_traffic  = sprintf("%.2f", $in_traffic);
-$out_traffic = sprintf("%.2f", $out_traffic);
+$in_traffic  = sprintf( "%.2f", $in_traffic );
+$out_traffic = sprintf( "%.2f", $out_traffic );
 
-$output = "Average IN: ".$in.$suffix." (".$in_usage."%), "
-        ."Average OUT: ".$out.$suffix." (".$out_usage."%) ";
-$output .= "Total RX: ".$rx.$label.", Total TX: ".$tx.$label;
+$output =
+    "Average IN: " 
+  . $in 
+  . $suffix . " ("
+  . $in_usage . "%), "
+  . "Average OUT: "
+  . $out
+  . $suffix . " ("
+  . $out_usage . "%) ";
+$output .= "Total RX: " . $rx . $label . ", Total TX: " . $tx . $label;
 $state = "OK";
 
-if (($in_usage>$warn_usage) or ($out_usage>$warn_usage)) {
- $state = "WARNING";
+if ( ( $in_usage > $warn_usage ) or ( $out_usage > $warn_usage ) ) {
+    $state = "WARNING";
 }
 
-if (($in_usage>$crit_usage) or ($out_usage>$crit_usage)) {
- $state = "CRITICAL";
+if ( ( $in_usage > $crit_usage ) or ( $out_usage > $crit_usage ) ) {
+    $state = "CRITICAL";
 }
 
 $output = "$state - $output" if ( $state ne "OK" );
 
 $output .=
 "|inUsage=$in_usage%;$warn_usage;$crit_usage outUsage=$out_usage%;$warn_usage;$crit_usage"
-  ." inBandwidth=".$in_traffic.$suffix." outBandwidth=".$out_traffic.$suffix 
-  ." inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut";
+  . " inBandwidth="
+  . $in_traffic
+  . $suffix
+  . " outBandwidth="
+  . $out_traffic
+  . $suffix
+  . " inAbsolut=$in_traffic_absolut outAbsolut=$out_traffic_absolut";
 
-stop($output, $state);
+stop( $output, $state );
 
