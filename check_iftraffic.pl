@@ -2,66 +2,12 @@
 #
 # check_iftraffic.pl - Nagios(r) network traffic monitor plugin
 # Copyright (C) 2004 Gerd Mueller / Netways GmbH
-# Changes make by Ektanoor on 2010
-# $Id: check_iftraffic.pl 1119 2010-12-23 13:30:09Z ektanoor $
-#
-# mw = Markus Werner mw+nagios@wobcom.de
-# Remarks (mw):
-#
-#	I adopted as much as possible the programming style of the origin code.
-#
-#	There should be a function to exit this programm,
-#	instead of calling print and exit statements all over the place.
-#
-#
-# minor changes by mw
-# 	The snmp if_counters on net devices can have overflows.
-#	I wrote this code to address this situation.
-#	It has no automatic detection and which point the overflow
-#	occurs but it will generate a warning state and you
-#	can set the max value by calling this script with an additional
-#	arg.
-#
-# minor cosmetic changes by mw
-#	Sorry but I couldn't sustain to clean up some things.
-#
-# gj = Greg Frater gregATfraterfactory.com
-# Remarks (gj):
-# minor (gj):
-#
-#	* fixed the performance data, formating was not to spec
-# 	* Added a check of the interfaces status (up/down).
-#	  If down the check returns a critical status.
-# 	* Allow either textual or the numeric index value.
-#	* If the interface speed is not specified on the command line
-#	  it gets it automatically from IfSpeed
-#	* Added option for second ifSpeed to allow for asymetrcal links
-#	  such as a DSL line or cable modem where the download and upload
-#	  speeds are different
-#	* Added -B option to display results in bits/sec instead of Bytes/sec
-#	* Added the current usage in Bytes/s (or bit/s) to the perfdata output
-#	* Added ability for plugin to determine interface to query by matching IP
-#	  address of host with entry in ipAdEntIfIndex (.1.3.6.1.2.1.4.20.1.2)
-#	* Added -L flag to list entries found in the ipAdEntIfIndex table
-#	Otherwise, it works as before.
-#
-#
-# Ektanoor
-#	Had to radically change several snippets of code to make calculations more consistent
-#	Internally all is calculated on bits. This is the basic unit for traffic calculation, so it shall stay as such.
-#	No internal calculations for dimensions. All megas, gigas and kilos are made only at the beginning and ending.
-#	Had to turn SNMP to version 2 as we need 64-bit counters. The 32-bit overflow too fast and too frequently.
-#	Changed the way to calculate overflow. The new one is more rational and solid.
-#	All errors go to stop().
-#	Final note: The new version works but it can be made a lot better. All I have done was to make it workable with fast speed interfaces.
-#
-#       4.1 - Several changes, most of them to fit better an ISP environment:
-#       - bits per second are the default now. Use -B for bytes.
-#       - RX, TX and absolute values show bytes/octets only.
-#       - We now use Perl's given-where "switch" in some places. Look for the correct "use" for your version of perl.
-#
-#
 # based on check_traffic from Adrian Wieczorek, <ads (at) irc.pila.pl>
+# Changes made by 
+# 	Markus Werner mw+nagios@wobcom.de (Version 1.0 to 2.0)
+# 	Greg Frater gregATfraterfactory.com (Version 3.0)
+# 	Ektanoor (Version 4.0 to 4.1)
+# 	Bernhard Schmidt berni@birkenwald.de (Version 5.0+)
 #
 # Send us bug reports, questions and comments about this plugin.
 # Latest version of this software: http://www.nagiosexchange.org
