@@ -1,5 +1,10 @@
 check_iftraffic.pl Nagios Plugin for monitoring traffic loads on interfaces
 using SNMP.
 
-This is a fork of the well-known check_iftraffic.pl plugins done by Markus Werner,
-Greg Frater and Ektanoor. 
+This is a fork of the well-known check_iftraffic.pl plugins done by Markus
+Werner, Greg Frater and Ektanoor. 
+
+Development is done by Bernhard Schmidt <berni@birkenwald.de>. The source
+code is available at GitHub 
+(https://github.com/bernhardschmidt/nagios-check-iftraffic). Patches are
+welcome

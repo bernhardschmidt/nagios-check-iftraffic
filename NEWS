@@ -1,0 +1,4 @@
+Version 5.0: (to be released)
+* cleanup source code
+* use Nagios::Plugin module for easier processing
+* add new switch --total to make displaying of totals optional
