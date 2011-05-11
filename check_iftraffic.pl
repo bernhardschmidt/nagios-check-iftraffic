@@ -279,7 +279,7 @@ sub format_volume_bytes {
 }
 
 $np = Nagios::Plugin->new(
-	usage => "%s -H host [ -C community_string ] [ -p port ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ]",
+	usage => "%s -H host [ -C community_string ] [ -p port ] [ -i if_index|if_descr ] [ -r ] [ -b if_max_speed_in | -I if_max_speed_in ] [ -O if_max_speed_out ] [ -u ] [ -B ] [ -A IP Address ] [ -L ] [ -M ] [ -w warn ] [ -c crit ] [ --total ]",
 	version => "5.0",
 	url => "https://github.com/bernhardschmidt/nagios-check-iftraffic",
 	blurb => "Check traffic on an interface using SNMP",
@@ -374,6 +374,11 @@ $np->add_arg(
 	"   used when the index changes frequently or as in the case of Windows\n" .
 	"   servers the index is different depending on the NIC installed.",
     label	=> 'IPADDRESS',
+);
+
+$np->add_arg(
+    spec    => 'total',
+    help    => "Display total (absolute) amount of traffic in output and perfdata";
 );
 
 $np->getopts();
@@ -591,7 +596,11 @@ $output =
   . $out
   . $suffix . " ("
   . $out_usage . "%) ";
-$output .= "Total RX: " . $rx . $label . ", Total TX: " . $tx . $label;
+
+if ($np->opts->total) {
+    $output .= "Total RX: " . $rx . $label . ", Total TX: " . $tx . $label;
+};
+
 $state = Nagios::Plugin::OK;
 
 $state = $np->max_state($state, $np->check_threshold( $in_usage ));
@@ -619,13 +628,14 @@ $np->add_perfdata(
 	value	=> $out_traffic,
 	uom	=> $suffix );
 
-$np->add_perfdata(
-	label	=> "inAbsolut",
-	value	=> $in_traffic_absolut );
-
-$np->add_perfdata(
-	label	=> "outAbsolut",
-	value	=> $out_traffic_absolut );
+if ($np->opts->total) {
+    $np->add_perfdata(
+        label	=> "inAbsolut",
+        value	=> $in_traffic_absolut );
+    $np->add_perfdata(
+        label	=> "outAbsolut",
+        value	=> $out_traffic_absolut );
+};
 
 $np->nagios_exit( $state, $output );
 
